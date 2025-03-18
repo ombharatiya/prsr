@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Invoice Parser</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            color: #2c3e50;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .container {
+            background-color: #f9f9f9;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        .upload-container {
+            border: 2px dashed #3498db;
+            border-radius: 5px;
+            padding: 30px;
+            text-align: center;
+            margin-bottom: 20px;
+            background-color: #ecf0f1;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .upload-container:hover {
+            background-color: #e3e8e9;
+        }
+        .upload-container.active {
+            border-color: #27ae60;
+            background-color: #eafaf1;
+        }
+        #file-input {
+            display: none;
+        }
+        .btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: background-color 0.3s;
+        }
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        .btn:disabled {
+            background-color: #95a5a6;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 20px;
+            display: none;
+        }
+        .results table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        .results th, .results td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        .results th {
+            background-color: #f2f2f2;
+        }
+        .loading {
+            text-align: center;
+            display: none;
+        }
+        .loading img {
+            width: 40px;
+            height: 40px;
+        }
+        .error {
+            color: #e74c3c;
+            display: none;
+            padding: 10px;
+            background-color: #fadbd8;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .download-btn {
+            margin-top: 10px;
+            background-color: #2ecc71;
+        }
+        .download-btn:hover {
+            background-color: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Invoice Parser</h1>
+        
+        <div class="upload-container" id="upload-area">
+            <p>Drag and drop your PDF invoice here</p>
+            <p>OR</p>
+            <button class="btn" id="select-btn">Select PDF File</button>
+            <input type="file" id="file-input" accept=".pdf">
+            <p id="file-name"></p>
+        </div>
+        
+        <div class="upload-controls">
+            <button class="btn" id="upload-btn" disabled>Process Invoice</button>
+        </div>
+        
+        <div class="loading" id="loading">
+            <p>Processing invoice, please wait...</p>
+            <img src="https://i.gifer.com/origin/b4/b4d657e7ef262b88eb5f7ac021edda87.gif" alt="Loading">
+        </div>
+        
+        <div class="error" id="error-message"></div>
+        
+        <div class="results" id="results">
+            <h2>Results</h2>
+            <p>Your invoice has been successfully processed. You can download the extracted data:</p>
+            <button class="btn download-btn" id="invoice-csv-btn">Download Invoice-Level CSV</button>
+            <button class="btn download-btn" id="items-csv-btn">Download Item-Level CSV</button>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const uploadArea = document.getElementById('upload-area');
+            const fileInput = document.getElementById('file-input');
+            const selectBtn = document.getElementById('select-btn');
+            const uploadBtn = document.getElementById('upload-btn');
+            const fileName = document.getElementById('file-name');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const errorMessage = document.getElementById('error-message');
+            const invoiceCsvBtn = document.getElementById('invoice-csv-btn');
+            const itemsCsvBtn = document.getElementById('items-csv-btn');
+            
+            let selectedFile = null;
+            let invoiceCsvUrl = '';
+            let itemsCsvUrl = '';
+            
+            // Handle file selection
+            selectBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                selectedFile = e.target.files[0];
+                if (selectedFile) {
+                    if (selectedFile.type !== 'application/pdf') {
+                        showError('Please select a PDF file.');
+                        resetFile();
+                        return;
+                    }
+                    
+                    fileName.textContent = selectedFile.name;
+                    uploadBtn.disabled = false;
+                    uploadArea.classList.add('active');
+                }
+            });
+            
+            // Drag and drop functionality
+            uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('active');
+            });
+            
+            uploadArea.addEventListener('dragleave', () => {
+                uploadArea.classList.remove('active');
+            });
+            
+            uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                
+                selectedFile = e.dataTransfer.files[0];
+                if (selectedFile) {
+                    if (selectedFile.type !== 'application/pdf') {
+                        showError('Please select a PDF file.');
+                        resetFile();
+                        return;
+                    }
+                    
+                    fileName.textContent = selectedFile.name;
+                    uploadBtn.disabled = false;
+                    uploadArea.classList.add('active');
+                }
+            });
+            
+            // Handle upload button click
+            uploadBtn.addEventListener('click', () => {
+                if (!selectedFile) return;
+                
+                // Show loading state
+                loading.style.display = 'block';
+                errorMessage.style.display = 'none';
+                results.style.display = 'none';
+                uploadBtn.disabled = true;
+                
+                const formData = new FormData();
+                formData.append('file', selectedFile);
+                
+                fetch('/upload-invoice/', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.detail || 'Failed to process invoice');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Hide loading state
+                    loading.style.display = 'none';
+                    
+                    // Save URLs for download
+                    invoiceCsvUrl = data.invoice_csv_url;
+                    itemsCsvUrl = data.item_csv_url;
+                    
+                    // Show results
+                    results.style.display = 'block';
+                })
+                .catch(error => {
+                    loading.style.display = 'none';
+                    showError(error.message);
+                    uploadBtn.disabled = false;
+                });
+            });
+            
+            // Handle download buttons
+            invoiceCsvBtn.addEventListener('click', () => {
+                if (invoiceCsvUrl) {
+                    window.location.href = invoiceCsvUrl;
+                }
+            });
+            
+            itemsCsvBtn.addEventListener('click', () => {
+                if (itemsCsvUrl) {
+                    window.location.href = itemsCsvUrl;
+                }
+            });
+            
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorMessage.style.display = 'block';
+            }
+            
+            function resetFile() {
+                selectedFile = null;
+                fileName.textContent = '';
+                uploadBtn.disabled = true;
+                uploadArea.classList.remove('active');
+                fileInput.value = '';
+            }
+        });
+    </script>
+</body>
+</html> 
